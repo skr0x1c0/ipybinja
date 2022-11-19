@@ -84,11 +84,11 @@ class BinjaMagicVariablesProvider(dict):
         return super().__getitem__(k)
 
     def __setitem__(self, k, v):
-        assert k not in BinjaMagicVariablesProvider._MAGIC_VARIABLES
+        self._check_mutate(k)
         return super().__setitem__(k, v)
 
     def __delitem__(self, k):
-        assert k not in BinjaMagicVariablesProvider._MAGIC_VARIABLES
+        self._check_mutate(k)
         return super().__delitem__(k)
 
     def get(self, k, default=None):
@@ -98,31 +98,20 @@ class BinjaMagicVariablesProvider(dict):
         return super().get(k, default)
 
     def setdefault(self, k, default=None):
-        assert k not in BinjaMagicVariablesProvider._MAGIC_VARIABLES
+        self._check_mutate(k)
         return super().setdefault(k, default)
 
     def pop(self, k, v=object()):
-        assert k not in BinjaMagicVariablesProvider._MAGIC_VARIABLES
+        self._check_mutate(k)
         return super().pop(k, v)
 
-    def update(self, mapping=(), **kwargs):
-        super().update(mapping, **kwargs)
-
-    def __contains__(self, k):
-        return super().__contains__(k)
-
-    def __iter__(self):
-        return super().__iter__()
-
-    def keys(self):
-        return super().keys()
+    @classmethod
+    def _check_mutate(cls, k):
+        if k in BinjaMagicVariablesProvider._MAGIC_VARIABLES:
+            raise Exception(f'cannot mutate magic variable {k}')
 
     def copy(self):
         return type(self)(self)
-
-    @classmethod
-    def fromkeys(cls, keys, v=None):
-        return super(BinjaMagicVariablesProvider, cls).fromkeys((k for k in keys), v)
 
     def __repr__(self):
         return '{0}({1})'.format(type(self).__name__, super(BinjaMagicVariablesProvider, self).__repr__())
