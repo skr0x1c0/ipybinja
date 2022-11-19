@@ -6,4 +6,4 @@ A iPython console widget for Binary Ninja.
 
 ## License
 
-This plugin is released under an [MIT license](./LICENSE.txt).
+This plugin is released under an [MIT license](./LICENSE).
