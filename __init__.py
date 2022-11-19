@@ -33,6 +33,7 @@ from qtconsole.styles import default_dark_style_sheet, default_dark_syntax_style
 
 class BinjaMagicVariablesProvider(dict):
     _MAGIC_VARIABLES = {
+        'current_address',
         'current_thread',
         'current_view',
         'bv',
@@ -42,11 +43,14 @@ class BinjaMagicVariablesProvider(dict):
         'current_mlil',
         'current_hlil',
         'dbg',
+        'here',
         'current_data_var',
         'current_symbol',
         'current_symbols',
         'current_segment',
         'current_sections',
+        'current_selection',
+        'current_raw_offset',
         'current_comment',
         'current_ui_context',
         'current_ui_view_frame',
