@@ -5,14 +5,12 @@ import logging
 import os
 import sys
 import types
+from typing import Optional
 
 import ipykernel.iostream
 import qasync
-
-from typing import Optional
-
 from PySide6.QtWidgets import QApplication, QVBoxLayout
-from binaryninja.scriptingprovider import ScriptingProvider, PythonScriptingInstance, original_stdout, \
+from binaryninja.scriptingprovider import ScriptingInstance, PythonScriptingInstance, original_stdout, \
     original_stderr, _PythonScriptingInstanceOutput
 from binaryninjaui import GlobalAreaWidget, GlobalArea
 from ipykernel.kernelapp import IPKernelApp
@@ -33,7 +31,7 @@ from jupyter_client import find_connection_file
 from qtconsole.styles import default_dark_style_sheet, default_dark_syntax_style
 
 
-class BinjaMagicVariablesProvider:
+class BinjaMagicVariablesProvider(dict):
     _MAGIC_VARIABLES = {
         'current_thread',
         'current_view',
@@ -49,7 +47,7 @@ class BinjaMagicVariablesProvider:
         'current_symbols',
         'current_segment',
         'current_sections',
-        'current_comment'
+        'current_comment',
         'current_ui_context',
         'current_ui_view_frame',
         'current_ui_view',
@@ -66,16 +64,64 @@ class BinjaMagicVariablesProvider:
         'current_il_basic_block'
     }
 
-    def __init__(self):
-        providers = [provider for provider in ScriptingProvider._instances \
+    def __init__(self, mapping=(), **kwargs):
+        super().__init__(mapping, **kwargs)
+        providers = [provider for provider in ScriptingInstance._registered_instances \
                      if isinstance(provider, PythonScriptingInstance)]
         assert len(providers) == 1
         self._interpreter = providers[0].interpreter
+        for k in BinjaMagicVariablesProvider._MAGIC_VARIABLES:
+            super().__setitem__(k, None)
 
-    def __getattr__(self, item):
-        if item in BinjaMagicVariablesProvider._MAGIC_VARIABLES:
-            return self._interpreter.locals[item]
-        return getattr(super(BinjaMagicVariablesProvider, self), item)
+    def __getitem__(self, k):
+        if k in BinjaMagicVariablesProvider._MAGIC_VARIABLES:
+            self._interpreter.update_locals()
+            return self._interpreter.locals[k]
+        return super().__getitem__(k)
+
+    def __setitem__(self, k, v):
+        assert k not in BinjaMagicVariablesProvider._MAGIC_VARIABLES
+        return super().__setitem__(k, v)
+
+    def __delitem__(self, k):
+        assert k not in BinjaMagicVariablesProvider._MAGIC_VARIABLES
+        return super().__delitem__(k)
+
+    def get(self, k, default=None):
+        if k in BinjaMagicVariablesProvider._MAGIC_VARIABLES:
+            self._interpreter.update_locals()
+            return self._interpreter.locals.get(k, default)
+        return super().get(k, default)
+
+    def setdefault(self, k, default=None):
+        assert k not in BinjaMagicVariablesProvider._MAGIC_VARIABLES
+        return super().setdefault(k, default)
+
+    def pop(self, k, v=object()):
+        assert k not in BinjaMagicVariablesProvider._MAGIC_VARIABLES
+        return super().pop(k, v)
+
+    def update(self, mapping=(), **kwargs):
+        super().update(mapping, **kwargs)
+
+    def __contains__(self, k):
+        return super().__contains__(k)
+
+    def __iter__(self):
+        return super().__iter__()
+
+    def keys(self):
+        return super().keys()
+
+    def copy(self):
+        return type(self)(self)
+
+    @classmethod
+    def fromkeys(cls, keys, v=None):
+        return super(BinjaMagicVariablesProvider, cls).fromkeys((k for k in keys), v)
+
+    def __repr__(self):
+        return '{0}({1})'.format(type(self).__name__, super(BinjaMagicVariablesProvider, self).__repr__())
 
 
 class BinjaRichJupyterWidget(RichJupyterWidget):
@@ -126,7 +172,8 @@ class IPythonKernel:
             # We provide our own logger here because the default one from
             # traitlets adds a handler that expect stderr to be a regular
             # file object
-            log=logging.getLogger("ipybinja_kernel")
+            log=logging.getLogger("ipybinja_kernel"),
+            user_ns=BinjaMagicVariablesProvider(),
         )
         app.initialize()
         return app
