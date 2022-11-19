@@ -168,8 +168,17 @@ class IPythonKernel:
             log=logging.getLogger("ipybinja_kernel"),
             user_ns=BinjaMagicVariablesProvider(),
         )
+        connection_file = cls._get_env_connection_file()
+        if connection_file is not None:
+            logging.warning(f'using IPyConsole connection file {connection_file} from '
+                            f'IPYTHON_BINJA_CONNECTION_FILE env variable')
+            app.connection_file = connection_file
         app.initialize()
         return app
+
+    @classmethod
+    def _get_env_connection_file(cls) -> Optional[str]:
+        return os.environ.get('IPYTHON_BINJA_CONNECTION_FILE', None)
 
 
 class IPythonWidget(GlobalAreaWidget):
