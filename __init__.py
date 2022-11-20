@@ -30,7 +30,6 @@ os.environ["QT_API"] = "PySide6"
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
 from qtconsole.manager import QtKernelManager
 from qtconsole.client import QtKernelClient
-from jupyter_client import find_connection_file
 from qtconsole.styles import default_dark_style_sheet, default_dark_syntax_style
 
 
@@ -181,7 +180,7 @@ class IPythonKernel:
             self.app = IPythonKernel._create_app()
         self.app.shell.set_completer_frame()
         self.app.kernel.start()
-        self.connection_file = self.app.connection_file
+        self.connection_file = self.app.abs_connection_file
 
     @classmethod
     def _create_app(cls) -> IPKernelApp:
@@ -219,8 +218,7 @@ class IPythonWidget(GlobalAreaWidget):
         self.installEventFilter(self)
 
     def _create_widget(self) -> RichJupyterWidget:
-        connection_file = find_connection_file(self.kernel.connection_file)
-        self.kernel_manager = QtKernelManager(connection_file=connection_file)
+        self.kernel_manager = QtKernelManager(connection_file=self.kernel.connection_file)
         self.kernel_manager.load_connection_file()
         self.kernel_manager.client_factory = QtKernelClient
         self.kernel_client = self.kernel_manager.client()
