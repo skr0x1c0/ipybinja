@@ -81,7 +81,7 @@ class BinjaMagicVariablesProvider(dict):
         super().__init__(mapping, **kwargs)
         providers = [provider for provider in ScriptingInstance._registered_instances \
                      if isinstance(provider, PythonScriptingInstance)]
-        assert len(providers) == 1
+        assert len(providers) >= 1
         self._interpreter = providers[0].interpreter
         for k in BinjaMagicVariablesProvider._MAGIC_VARIABLES:
             super().__setitem__(k, None)
