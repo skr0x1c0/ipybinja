@@ -13,8 +13,8 @@ import ipykernel.iostream
 import ipykernel.displayhook
 
 from PySide6.QtWidgets import QApplication, QVBoxLayout
-from binaryninja.scriptingprovider import ScriptingInstance, PythonScriptingInstance, original_stdout, \
-    original_stderr, _PythonScriptingInstanceOutput
+from PySide6.QtCore import QEvent
+from binaryninja.scriptingprovider import ScriptingInstance, PythonScriptingInstance, original_stdout, original_stderr
 from binaryninjaui import GlobalAreaWidget, GlobalArea
 from ipykernel.kernelapp import IPKernelApp
 
@@ -32,6 +32,13 @@ from qtconsole.manager import QtKernelManager
 from qtconsole.client import QtKernelClient
 from jupyter_client import find_connection_file
 from qtconsole.styles import default_dark_style_sheet, default_dark_syntax_style
+
+
+class BinjaSysRestores:
+    stdout = sys.stdout
+    stderr = sys.stderr
+    displayhook = sys.displayhook
+    excepthook = sys.excepthook
 
 
 class BinjaMagicVariablesProvider(dict):
@@ -124,14 +131,18 @@ class BinjaRichJupyterWidget(RichJupyterWidget):
     pass
 
 
+class IPythonWidgetGlobalState:
+    has_focus = False
+
+
 class BinjaTeeOutStream(ipykernel.iostream.OutStream):
 
     def __init__(self, *args, **kwargs):
         super(BinjaTeeOutStream, self).__init__(*args, **kwargs)
         if self.name == 'stdout':
-            self._ostream = _PythonScriptingInstanceOutput(original_stdout, False)
+            self._ostream = BinjaSysRestores.stdout
         elif self.name == 'stderr':
-            self._ostream = _PythonScriptingInstanceOutput(original_stderr, True)
+            self._ostream = BinjaSysRestores.stderr
         else:
             self._ostream = None
 
@@ -145,9 +156,9 @@ class BinjaTeeOutStream(ipykernel.iostream.OutStream):
             sys.stdout, sys.stderr = backup_streams
 
     def write(self, string: str) -> Optional[int]:
-        if self._ostream:
-            self._ostream.write(string)
-        return super(BinjaTeeOutStream, self).write(string)
+        if IPythonWidgetGlobalState.has_focus:
+            return super(BinjaTeeOutStream, self).write(string)
+        return self._ostream.write(string)
 
 
 class BinjaDisplayHook(ipykernel.displayhook.ZMQDisplayHook):
@@ -156,8 +167,9 @@ class BinjaDisplayHook(ipykernel.displayhook.ZMQDisplayHook):
         super(BinjaDisplayHook, self).__init__(*args, **kwargs)
 
     def __call__(self, *args, **kwargs):
-        super(BinjaDisplayHook, self).__call__(*args, **kwargs)
-        sys.__displayhook__(*args, **kwargs)
+        if IPythonWidgetGlobalState.has_focus:
+            return super(BinjaDisplayHook, self).__call__(*args, **kwargs)
+        return BinjaSysRestores.displayhook(*args, **kwargs)
 
 
 class IPythonKernel:
@@ -198,13 +210,13 @@ class IPythonKernel:
 class IPythonWidget(GlobalAreaWidget):
     def __init__(self, name):
         super(IPythonWidget, self).__init__(name)
-        self._original_excepthook = sys.excepthook
         self.kernel = IPythonKernel()
         self._ipython_excepthook = sys.excepthook
         sys.excepthook = self._excepthook_wrapper
-        layout = QVBoxLayout()
-        layout.addWidget(self._create_widget())
-        self.setLayout(layout)
+        self.layout = QVBoxLayout()
+        self.layout.addWidget(self._create_widget())
+        self.setLayout(self.layout)
+        self.installEventFilter(self)
 
     def _create_widget(self) -> RichJupyterWidget:
         connection_file = find_connection_file(self.kernel.connection_file)
@@ -214,7 +226,7 @@ class IPythonWidget(GlobalAreaWidget):
         self.kernel_client = self.kernel_manager.client()
         self.kernel_client.start_channels()
         widget = BinjaRichJupyterWidget(
-            self,
+            self.layout.widget(),
             style_sheet=default_dark_style_sheet,
             syntax_style=default_dark_syntax_style
         )
@@ -223,8 +235,16 @@ class IPythonWidget(GlobalAreaWidget):
         return widget
 
     def _excepthook_wrapper(self, *args, **kwargs):
-        self._original_excepthook(*args, **kwargs)
-        self._ipython_excepthook(*args, **kwargs)
+        if IPythonWidgetGlobalState.has_focus:
+            return self._ipython_excepthook(*args, **kwargs)
+        return BinjaSysRestores.excepthook(*args, **kwargs)
+
+    def eventFilter(self, source, event):
+        if event.type() == QEvent.HideToParent:
+            _widget_has_focus = False
+        elif event.type() == QEvent.FocusIn:
+            _widget_has_focus = True
+        return super(IPythonWidget, self).eventFilter(source, event)
 
 
 if not isinstance(asyncio.get_event_loop(), qasync.QEventLoop):
