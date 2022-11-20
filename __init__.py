@@ -5,10 +5,13 @@ import logging
 import os
 import sys
 import types
+
 from typing import Optional
 
-import ipykernel.iostream
 import qasync
+import ipykernel.iostream
+import ipykernel.displayhook
+
 from PySide6.QtWidgets import QApplication, QVBoxLayout
 from binaryninja.scriptingprovider import ScriptingInstance, PythonScriptingInstance, original_stdout, \
     original_stderr, _PythonScriptingInstanceOutput
@@ -147,6 +150,16 @@ class BinjaTeeOutStream(ipykernel.iostream.OutStream):
         return super(BinjaTeeOutStream, self).write(string)
 
 
+class BinjaDisplayHook(ipykernel.displayhook.ZMQDisplayHook):
+
+    def __init__(self, *args, **kwargs):
+        super(BinjaDisplayHook, self).__init__(*args, **kwargs)
+
+    def __call__(self, *args, **kwargs):
+        super(BinjaDisplayHook, self).__call__(*args, **kwargs)
+        sys.__displayhook__(*args, **kwargs)
+
+
 class IPythonKernel:
 
     def __init__(self):
@@ -162,6 +175,7 @@ class IPythonKernel:
     def _create_app(cls) -> IPKernelApp:
         app = IPKernelApp.instance(
             outstream_class='ipybinja.BinjaTeeOutStream',
+            displayhook_class='ipybinja.BinjaDisplayHook',
             # We provide our own logger here because the default one from
             # traitlets adds a handler that expect stderr to be a regular
             # file object
