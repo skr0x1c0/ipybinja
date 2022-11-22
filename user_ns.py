@@ -1,5 +1,5 @@
 import threading
-from typing import Optional, Union
+from typing import Optional, Union, Mapping
 
 import binaryninja as bn
 import binaryninjaui as bnui
@@ -86,7 +86,7 @@ class _BinjaMagicVariablesProvider:
         if frame is None:
             return None
         selection = frame.getSelectionOffsets()
-        return selection.start, selection.end
+        return selection
 
     @property
     def current_raw_offset(self) -> int:
@@ -203,6 +203,8 @@ class _BinjaMagicVariablesProvider:
         instr_index = self.current_il_index
         if function is None or instr_index is None:
             return None
+        if instr_index > len(function):
+            return None
         return function[instr_index]
 
     @property
@@ -214,34 +216,46 @@ class _BinjaMagicVariablesProvider:
         return function.get_basic_block_at(instr_index)
 
     @property
-    def current_ui_context(self) -> bnui.UIContext:
+    def current_ui_context(self) -> Optional[bnui.UIContext]:
         return bnui.UIContext.activeContext()
 
     @property
     def current_ui_view_frame(self) -> Optional[bnui.ViewFrame]:
-        return self.current_ui_context.getCurrentViewFrame()
+        ctx = self.current_ui_context
+        if ctx is None:
+            return None
+        return ctx.getCurrentViewFrame()
 
     @property
     def current_ui_view(self) -> Optional[bnui.View]:
-        return self.current_ui_context.getCurrentView()
+        ctx = self.current_ui_context
+        if ctx is None:
+            return None
+        return ctx.getCurrentView()
 
     @property
     def current_ui_action_handler(self) -> Optional[bnui.UIActionHandler]:
-        return self.current_ui_context.getCurrentActionHandler()
+        ctx = self.current_ui_context
+        if ctx is None:
+            return None
+        return ctx.getCurrentActionHandler()
 
     @property
     def current_ui_view_location(self) -> Optional[bnui.ViewLocation]:
         view_frame = self.current_ui_view_frame
         if view_frame is None:
             return None
-        return self.current_ui_view_frame.getViewLocation()
+        return view_frame.getViewLocation()
 
     @property
     def current_ui_action_context(self):
         view = self.current_ui_view
         if view is not None:
             return view.actionContext()
-        return self.current_ui_context.getCurrentActionHandler()
+        ctx = self.current_ui_context
+        if ctx is None:
+            return None
+        return ctx.getCurrentActionHandler()
 
     @property
     def current_token(self) -> Optional[bn.InstructionTextToken]:
@@ -309,5 +323,15 @@ class UserNamespaceProvider(dict):
         if k in _BinjaMagicVariablesProvider.MAGIC_VARIABLES:
             raise Exception(f'cannot mutate magic variable {k}')
 
+    def update(self, m: Mapping, **kwargs) -> None:
+        for k in m.keys():
+            self._check_mutate(k)
+        for k in kwargs:
+            self._check_mutate(k)
+        return super().update(m, **kwargs)
+
     def copy(self):
         return type(self)(self)
+
+    def __iter__(self):
+        raise Exception('todo')
