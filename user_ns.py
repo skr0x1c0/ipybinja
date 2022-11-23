@@ -323,11 +323,16 @@ class UserNamespaceProvider(dict):
         if k in _BinjaMagicVariablesProvider.MAGIC_VARIABLES:
             raise Exception(f'cannot mutate magic variable {k}')
 
+    @classmethod
+    def _check_update(cls, k, v):
+        if k in _BinjaMagicVariablesProvider.MAGIC_VARIABLES and v is not None:
+            raise Exception(f'cannot update magic variable {k} to {v}')
+
     def update(self, m: Mapping, **kwargs) -> None:
-        for k in m.keys():
-            self._check_mutate(k)
-        for k in kwargs:
-            self._check_mutate(k)
+        for k, v in m.items():
+            self._check_update(k, v)
+        for k, v in kwargs:
+            self._check_update(k, v)
         return super().update(m, **kwargs)
 
     def copy(self):
