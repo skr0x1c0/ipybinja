@@ -6,6 +6,9 @@ import os
 import sys
 import types
 import threading
+import signal
+import ctypes
+
 
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
@@ -16,6 +19,7 @@ from PySide6.QtWidgets import QApplication, QVBoxLayout
 from binaryninjaui import GlobalAreaWidget, GlobalArea
 from ipykernel.kernelapp import IPKernelApp
 from ipykernel.ipkernel import IPythonKernel, ZMQInteractiveShell
+from IPython.core.interactiveshell import ExecutionResult
 
 # Hack required for bundled PySide6 to work with QtPy
 sys.modules["PySide6.QtOpenGL"] = types.ModuleType("EmptyQtOpenGL")
@@ -39,23 +43,47 @@ class ZMQThreadedShell(ZMQInteractiveShell):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._executor = ThreadPoolExecutor(1, 'CustomShell')
+        self._tid = None
+        self._executor = ThreadPoolExecutor(1, 'CustomShell', initializer=self._thread_initializer)
+
+    def _thread_initializer(self):
+        self._tid = threading.current_thread().ident
 
     def should_run_async(self, raw_cell: str, *, transformed_cell=None, preprocessing_exc_tuple=None):
+        if not self.autoawait:
+            return False
+        if preprocessing_exc_tuple is not None:
+            return False
         return True
 
-    async def run_cell_async(self, *args, **kwargs):
+    async def run_cell_async(self, *args, **kwargs) -> ExecutionResult:
         loop = asyncio.get_running_loop()
-        coro = super().run_cell_async(*args, **kwargs)
-        return await loop.run_in_executor(
+        future = asyncio.ensure_future(loop.run_in_executor(
             self._executor,
             asyncio.run,
-            coro
-        )
+            super().run_cell_async(*args, **kwargs)
+        ))
+
+        # Raise KeyboardInterrupt on executor thread when we receive SIGINT
+        def sigint_handler(*_):
+            if ctypes.pythonapi.PyThreadState_SetAsyncExc(
+                    ctypes.c_long(self._tid), ctypes.py_object(KeyboardInterrupt)
+            ) != 1:
+                ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(self._tid), None)
+
+        handler_orig = signal.signal(signal.SIGINT, sigint_handler)
+        try:
+            return await future
+        finally:
+            signal.signal(signal.SIGINT, handler_orig)
 
 
 class ThreadedKernel(IPythonKernel):
     shell_class = ZMQThreadedShell
+
+    @property
+    def pid(self):
+        return os.getpid()
 
 
 class IPythonKernelApp:
@@ -112,6 +140,7 @@ class IPythonWidget(GlobalAreaWidget):
         self.kernel_manager = QtKernelManager(connection_file=self.kernel.connection_file)
         self.kernel_manager.load_connection_file()
         self.kernel_manager.client_factory = QtKernelClient
+        self.kernel_manager.kernel = self.kernel.app.kernel
         self.kernel_client = self.kernel_manager.client()
         self.kernel_client.start_channels()
         widget = BinjaRichJupyterWidget(
