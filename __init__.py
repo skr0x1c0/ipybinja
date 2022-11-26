@@ -81,10 +81,6 @@ class ZMQThreadedShell(ZMQInteractiveShell):
 class ThreadedKernel(IPythonKernel):
     shell_class = ZMQThreadedShell
 
-    @property
-    def pid(self):
-        return os.getpid()
-
 
 class IPythonKernelApp:
 
@@ -124,7 +120,10 @@ class IPythonKernelApp:
 
 
 class BinjaRichJupyterWidget(RichJupyterWidget):
-    pass
+
+    # noinspection PyMethodMayBeStatic
+    def interrupt_kernel(self):
+        os.killpg(os.getpid(), signal.SIGINT)
 
 
 class IPythonWidget(GlobalAreaWidget):
@@ -140,7 +139,6 @@ class IPythonWidget(GlobalAreaWidget):
         self.kernel_manager = QtKernelManager(connection_file=self.kernel.connection_file)
         self.kernel_manager.load_connection_file()
         self.kernel_manager.client_factory = QtKernelClient
-        self.kernel_manager.kernel = self.kernel.app.kernel
         self.kernel_client = self.kernel_manager.client()
         self.kernel_client.start_channels()
         widget = BinjaRichJupyterWidget(
