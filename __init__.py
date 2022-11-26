@@ -8,12 +8,14 @@ import types
 import threading
 
 from typing import Optional
+from concurrent.futures import ThreadPoolExecutor
 
 import qasync
 
 from PySide6.QtWidgets import QApplication, QVBoxLayout
 from binaryninjaui import GlobalAreaWidget, GlobalArea
 from ipykernel.kernelapp import IPKernelApp
+from ipykernel.ipkernel import IPythonKernel, ZMQInteractiveShell
 
 # Hack required for bundled PySide6 to work with QtPy
 sys.modules["PySide6.QtOpenGL"] = types.ModuleType("EmptyQtOpenGL")
@@ -33,18 +35,42 @@ from .user_ns import UserNamespaceProvider
 from .os_router import BinjaExceptionHookRouter
 
 
-class IPythonKernel:
+class ZMQThreadedShell(ZMQInteractiveShell):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._executor = ThreadPoolExecutor(1, 'CustomShell')
+
+    def should_run_async(self, raw_cell: str, *, transformed_cell=None, preprocessing_exc_tuple=None):
+        return True
+
+    async def run_cell_async(self, *args, **kwargs):
+        loop = asyncio.get_running_loop()
+        coro = super().run_cell_async(*args, **kwargs)
+        return await loop.run_in_executor(
+            self._executor,
+            asyncio.run,
+            coro
+        )
+
+
+class ThreadedKernel(IPythonKernel):
+    shell_class = ZMQThreadedShell
+
+
+class IPythonKernelApp:
 
     def __init__(self):
         if IPKernelApp.initialized():
             self.app = IPKernelApp.instance()
         else:
-            self.app = IPythonKernel._create_app()
+            self.app = IPythonKernelApp._create_app()
         self.connection_file = self.app.abs_connection_file
 
     @classmethod
     def _create_app(cls) -> IPKernelApp:
         app = IPKernelApp.instance(
+            kernel_class='ipybinja.ThreadedKernel',
             outstream_class='ipybinja.os_router.BinjaStdOutRouter',
             displayhook_class='ipybinja.os_router.BinjaDisplayHookRouter',
             # We provide our own logger here because the default one from
@@ -76,7 +102,7 @@ class BinjaRichJupyterWidget(RichJupyterWidget):
 class IPythonWidget(GlobalAreaWidget):
     def __init__(self, name):
         super(IPythonWidget, self).__init__(name)
-        self.kernel = IPythonKernel()
+        self.kernel = IPythonKernelApp()
         self.layout = QVBoxLayout()
         self.layout.addWidget(self._create_widget())
         self.setLayout(self.layout)
