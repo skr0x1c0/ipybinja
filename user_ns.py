@@ -5,9 +5,12 @@ import binaryninja as bn
 import binaryninjaui as bnui
 
 
-def _with_ref(v, ref):
-    assert not hasattr(v, '_self_ref')
-    setattr(v, '_self_ref', ref)
+def _with_ref(v, parent):
+    # Keep a reference of parent c++ object in v
+    # This prevents parent from being destroyed
+    # while v is still alive
+    if v is not None:
+        v._self_ref = parent
     return v
 
 
