@@ -5,6 +5,12 @@ import binaryninja as bn
 import binaryninjaui as bnui
 
 
+def _with_ref(v, ref):
+    assert not hasattr(v, '_self_ref')
+    setattr(v, '_self_ref', ref)
+    return v
+
+
 class _BinjaMagicVariablesProvider:
     MAGIC_VARIABLES = {
         'current_thread',
@@ -48,7 +54,7 @@ class _BinjaMagicVariablesProvider:
         frame = self.current_ui_view_frame
         if frame is None:
             return None
-        return frame.getCurrentBinaryView()
+        return _with_ref(frame.getCurrentBinaryView(), frame)
 
     @property
     def bv(self) -> Optional[bn.BinaryView]:
@@ -224,38 +230,38 @@ class _BinjaMagicVariablesProvider:
         ctx = self.current_ui_context
         if ctx is None:
             return None
-        return ctx.getCurrentViewFrame()
+        return _with_ref(ctx.getCurrentViewFrame(), ctx)
 
     @property
     def current_ui_view(self) -> Optional[bnui.View]:
         ctx = self.current_ui_context
         if ctx is None:
             return None
-        return ctx.getCurrentView()
+        return _with_ref(ctx.getCurrentView(), ctx)
 
     @property
     def current_ui_action_handler(self) -> Optional[bnui.UIActionHandler]:
         ctx = self.current_ui_context
         if ctx is None:
             return None
-        return ctx.getCurrentActionHandler()
+        return _with_ref(ctx.getCurrentActionHandler(), ctx)
 
     @property
     def current_ui_view_location(self) -> Optional[bnui.ViewLocation]:
         view_frame = self.current_ui_view_frame
         if view_frame is None:
             return None
-        return view_frame.getViewLocation()
+        return _with_ref(view_frame.getViewLocation(), view_frame)
 
     @property
     def current_ui_action_context(self):
         view = self.current_ui_view
         if view is not None:
-            return view.actionContext()
+            return _with_ref(view.actionContext(), view)
         ctx = self.current_ui_context
         if ctx is None:
             return None
-        return ctx.getCurrentActionHandler()
+        return _with_ref(ctx.getCurrentActionHandler(), ctx)
 
     @property
     def current_token(self) -> Optional[bn.InstructionTextToken]:
