@@ -9,11 +9,12 @@ import threading
 import signal
 import ctypes
 
-
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 
 import qasync
+
+import binaryninja as bn
 
 from PySide6.QtWidgets import QApplication, QVBoxLayout
 from binaryninjaui import GlobalAreaWidget, GlobalArea
@@ -105,6 +106,7 @@ class IPythonKernelApp:
             # file object
             log=logging.getLogger("ipybinja_kernel"),
             user_ns=UserNamespaceProvider(),
+            exec_files=cls._get_exec_files()
         )
         connection_file = cls._get_env_connection_file()
         if connection_file is not None:
@@ -117,6 +119,17 @@ class IPythonKernelApp:
         app.kernel.start()
         sys.excepthook = BinjaExceptionHookRouter(app.shell.excepthook)
         return app
+
+    @classmethod
+    def _get_exec_files(cls) -> list[str]:
+        user_dir = bn.user_directory()
+        if user_dir is not None:
+            return [
+                os.path.join(user_dir, 'ipybinja.py'),
+                os.path.join(user_dir, 'startup.py')
+            ]
+        logging.warning(f'Failed to get Binary Ninja user directory')
+        return []
 
     @classmethod
     def _get_env_connection_file(cls) -> Optional[str]:
