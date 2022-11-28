@@ -269,7 +269,7 @@ class _BinjaMagicVariablesProvider:
     @property
     def current_token(self) -> Optional[bn.InstructionTextToken]:
         action_ctx = self.current_ui_action_context
-        if action_ctx is None:
+        if action_ctx is None or not hasattr(action_ctx, 'token'):
             return None
         token_state = action_ctx.token
         if not token_state.valid:
@@ -279,7 +279,7 @@ class _BinjaMagicVariablesProvider:
     @property
     def current_variable(self) -> Optional[bn.Variable]:
         action_ctx = self.current_ui_action_context
-        if action_ctx is None:
+        if action_ctx is None or not hasattr(action_ctx, 'token'):
             return None
         token_state = action_ctx.token
         if not token_state.localVarValid:
