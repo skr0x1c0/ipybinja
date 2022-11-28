@@ -37,6 +37,7 @@ from qtconsole.styles import default_dark_style_sheet, default_dark_syntax_style
 
 from .user_ns import UserNamespaceProvider
 from .os_router import BinjaExceptionHookRouter
+from .magic_functions import NavMagic
 
 
 class ZMQThreadedShell(ZMQInteractiveShell):
@@ -112,6 +113,7 @@ class IPythonKernelApp:
             app.connection_file = connection_file
         app.initialize()
         app.shell.set_completer_frame()
+        app.shell.register_magics(NavMagic)
         app.kernel.start()
         sys.excepthook = BinjaExceptionHookRouter(app.shell.excepthook)
         return app
