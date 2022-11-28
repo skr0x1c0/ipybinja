@@ -45,6 +45,8 @@ class ZMQThreadedShell(ZMQInteractiveShell):
         super().__init__(*args, **kwargs)
         self._tid = None
         self._executor = ThreadPoolExecutor(1, 'CustomShell', initializer=self._thread_initializer)
+        # Prevents kernel from crashing with attribute not found error when a magic command fails
+        self._last_traceback = None
 
     def _thread_initializer(self):
         self._tid = threading.current_thread().ident
