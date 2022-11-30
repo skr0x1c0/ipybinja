@@ -1,6 +1,6 @@
 # iPyBinja
 
-A iPython console widget for Binary Ninja.
+An iPython console widget for Binary Ninja.
 
 <img align="center" src="./resources/preview.png">
 
