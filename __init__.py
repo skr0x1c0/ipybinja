@@ -9,14 +9,16 @@ import threading
 import signal
 import ctypes
 
-
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 
 import qasync
 
+import binaryninja as bn
+
 from PySide6.QtWidgets import QApplication, QVBoxLayout
 from binaryninjaui import GlobalAreaWidget, GlobalArea
+from binaryninja import PluginCommand
 from ipykernel.kernelapp import IPKernelApp
 from ipykernel.ipkernel import IPythonKernel, ZMQInteractiveShell
 from IPython.core.interactiveshell import ExecutionResult
@@ -37,6 +39,8 @@ from qtconsole.styles import default_dark_style_sheet, default_dark_syntax_style
 
 from .user_ns import UserNamespaceProvider
 from .os_router import BinjaExceptionHookRouter
+from .magic_functions import NavMagic
+from .kernelspec import InstallKernelSpecTask
 
 
 class ZMQThreadedShell(ZMQInteractiveShell):
@@ -104,6 +108,7 @@ class IPythonKernelApp:
             # file object
             log=logging.getLogger("ipybinja_kernel"),
             user_ns=UserNamespaceProvider(),
+            exec_files=cls._get_exec_files()
         )
         connection_file = cls._get_env_connection_file()
         if connection_file is not None:
@@ -112,9 +117,21 @@ class IPythonKernelApp:
             app.connection_file = connection_file
         app.initialize()
         app.shell.set_completer_frame()
+        app.shell.register_magics(NavMagic)
         app.kernel.start()
         sys.excepthook = BinjaExceptionHookRouter(app.shell.excepthook)
         return app
+
+    @classmethod
+    def _get_exec_files(cls) -> list[str]:
+        user_dir = bn.user_directory()
+        if user_dir is not None:
+            return [
+                os.path.join(user_dir, 'ipybinja.py'),
+                os.path.join(user_dir, 'startup.py')
+            ]
+        logging.warning(f'Failed to get Binary Ninja user directory')
+        return []
 
     @classmethod
     def _get_env_connection_file(cls) -> Optional[str]:
@@ -157,4 +174,14 @@ if not isinstance(asyncio.get_event_loop(), qasync.QEventLoop):
     qapp = QApplication.instance()
     loop = qasync.QEventLoop(qapp, already_running=True)
     asyncio.set_event_loop(loop)
-GlobalArea.addWidget(lambda _: IPythonWidget('IPython Console'))
+
+GlobalArea.addWidget(
+    lambda _: IPythonWidget('IPython Console')
+)
+
+PluginCommand.register(
+    'IPyBinja\\Install Jupyter Kernel',
+    'Install jupyter kernel configuration for Binary Ninja',
+    lambda _: InstallKernelSpecTask().start(),
+    lambda _: True
+)
