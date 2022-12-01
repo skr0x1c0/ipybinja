@@ -18,6 +18,7 @@ import binaryninja as bn
 
 from PySide6.QtWidgets import QApplication, QVBoxLayout
 from binaryninjaui import GlobalAreaWidget, GlobalArea
+from binaryninja import PluginCommand
 from ipykernel.kernelapp import IPKernelApp
 from ipykernel.ipkernel import IPythonKernel, ZMQInteractiveShell
 from IPython.core.interactiveshell import ExecutionResult
@@ -39,6 +40,7 @@ from qtconsole.styles import default_dark_style_sheet, default_dark_syntax_style
 from .user_ns import UserNamespaceProvider
 from .os_router import BinjaExceptionHookRouter
 from .magic_functions import NavMagic
+from .kernelspec import InstallKernelSpecTask
 
 
 class ZMQThreadedShell(ZMQInteractiveShell):
@@ -172,4 +174,14 @@ if not isinstance(asyncio.get_event_loop(), qasync.QEventLoop):
     qapp = QApplication.instance()
     loop = qasync.QEventLoop(qapp, already_running=True)
     asyncio.set_event_loop(loop)
-GlobalArea.addWidget(lambda _: IPythonWidget('IPython Console'))
+
+GlobalArea.addWidget(
+    lambda _: IPythonWidget('IPython Console')
+)
+
+PluginCommand.register(
+    'IPyBinja\\Install Jupyter Kernel',
+    'Install jupyter kernel configuration for Binary Ninja',
+    lambda _: InstallKernelSpecTask().start(),
+    lambda _: True
+)
