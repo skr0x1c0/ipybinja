@@ -96,9 +96,40 @@ class IPythonKernelApp:
         else:
             self.app = IPythonKernelApp._create_app()
         self.connection_file = self.app.abs_connection_file
+    
+    @classmethod
+    def _configure_venv(cls):
+        if 'VIRTUAL_ENV' in os.environ:
+            logging.debug(f'skipping configure_venv since VIRTUAL_ENV env var is set')
+            return
+        site_packages = bn.Settings().get_string('python.virtualenv', None)
+        if site_packages is None:
+            logging.debug(f'skipping configure_venv since python.virtualenv is None')
+            return
+        if sys.platform == "win32":
+            venv = os.path.abspath(os.path.join(site_packages, '..', '..'))
+        else:
+            venv = os.path.abspath(os.path.join(site_packages, '..', '..', '..'))
+        os.environ['VIRTUAL_ENV'] = venv
+        
+    
+    @classmethod
+    def _configure_path(cls):
+        python_binary = bn.Settings().get_string('python.binaryOverride')
+        site_packages = bn.Settings().get_string('python.virtualenv')
+        if site_packages is None or python_binary is None:
+            logging.debug('skipping configure_path since python.virtualenv or '
+                          'python.binaryOverride is None')
+            return
+        binary_dir = os.path.dirname(python_binary)
+        os.environ['PATH'] = f'{binary_dir}{os.pathsep}{os.environ["PATH"]}'
+        logging.debug(f'configure_path modified PATH to {os.environ["PATH"]}')
+        
 
     @classmethod
     def _create_app(cls) -> IPKernelApp:
+        cls._configure_venv()
+        cls._configure_path()
         app = IPKernelApp.instance(
             kernel_class='ipybinja.ThreadedKernel',
             outstream_class='ipybinja.os_router.BinjaStdOutRouter',
