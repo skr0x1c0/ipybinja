@@ -2,7 +2,8 @@
 
 IPyBinja brings the full features provided by [IPython](https://ipython.org) interactive shell to [Binary Ninja](https://binary.ninja). 
 
-<img align="center" src="./resources/preview.png">
+https://user-images.githubusercontent.com/75971916/206898011-9d4e7586-a037-4c82-9116-e5e66e406d39.mp4
+
 
 ## Why use IPyBinja?
 
