@@ -1,4 +1,6 @@
 import logging
+import sys
+import shlex
 
 from typing import Optional
 
@@ -7,6 +9,7 @@ import binaryninjaui as bnui
 
 from IPython.core.magic import Magics, magics_class, line_magic
 from .user_ns import _BinjaMagicVariablesProvider
+from .utils import detect_python_path
 
 
 class _NavMagicError(Exception):
@@ -77,3 +80,23 @@ class NavMagic(Magics):
             return False
         bn.execute_on_main_thread_and_wait(lambda: view.navigateToViewLocation(vl))
         return True
+
+
+@magics_class
+class PackagingMagics(Magics):
+    
+    @line_magic
+    def pip(self, line):
+        python = detect_python_path()
+        if python is None:
+            print(f'Error: failed to detect path to python binary. Configure python.binaryOverride setting in Binary Ninja to fix this problem')
+            return
+        
+        if sys.platform == "win32":
+            python = '"' + python + '"'
+        else:
+            python = shlex.quote(python)
+
+        self.shell.system(" ".join([python, "-m", "pip", line]))
+
+        print("Note: you may need to restart the kernel to use updated packages.")

@@ -16,6 +16,7 @@ import qasync
 
 import binaryninja as bn
 
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import QApplication, QVBoxLayout
 from binaryninjaui import GlobalAreaWidget, GlobalArea
 from binaryninja import PluginCommand
@@ -39,7 +40,7 @@ from qtconsole.styles import default_dark_style_sheet, default_dark_syntax_style
 
 from .user_ns import UserNamespaceProvider
 from .os_router import BinjaExceptionHookRouter
-from .magic_functions import NavMagic
+from .magic_functions import NavMagic, PackagingMagics
 from .kernelspec import InstallKernelSpecTask
 
 
@@ -63,6 +64,7 @@ class ZMQThreadedShell(ZMQInteractiveShell):
         return True
 
     async def run_cell_async(self, *args, **kwargs) -> ExecutionResult:
+        self.user_ns.update_magic_snapshot()
         loop = asyncio.get_running_loop()
         future = asyncio.ensure_future(loop.run_in_executor(
             self._executor,
@@ -112,7 +114,6 @@ class IPythonKernelApp:
             venv = os.path.abspath(os.path.join(site_packages, '..', '..', '..'))
         os.environ['VIRTUAL_ENV'] = venv
         
-    
     @classmethod
     def _configure_path(cls):
         python_binary = bn.Settings().get_string('python.binaryOverride')
@@ -124,7 +125,6 @@ class IPythonKernelApp:
         binary_dir = os.path.dirname(python_binary)
         os.environ['PATH'] = f'{binary_dir}{os.pathsep}{os.environ["PATH"]}'
         logging.debug(f'configure_path modified PATH to {os.environ["PATH"]}')
-        
 
     @classmethod
     def _create_app(cls) -> IPKernelApp:
@@ -148,7 +148,7 @@ class IPythonKernelApp:
             app.connection_file = connection_file
         app.initialize()
         app.shell.set_completer_frame()
-        app.shell.register_magics(NavMagic)
+        app.shell.register_magics(NavMagic, PackagingMagics)
         app.kernel.start()
         sys.excepthook = BinjaExceptionHookRouter(app.shell.excepthook)
         return app
@@ -157,10 +157,16 @@ class IPythonKernelApp:
     def _get_exec_files(cls) -> list[str]:
         user_dir = bn.user_directory()
         if user_dir is not None:
-            return [
-                os.path.join(user_dir, 'ipybinja.py'),
-                os.path.join(user_dir, 'startup.py')
-            ]
+            ipybinja = os.path.join(user_dir, 'ipybinja.py')
+            startup = os.path.join(user_dir, 'startup.py')
+            scripts = []
+            if os.path.exists(ipybinja):
+                scripts.append(ipybinja)
+            if os.path.exists(startup):
+                scripts.append(startup)
+            else:
+                logging.warning(f'startup.py not found in Binary Ninja user home dir {user_dir}')
+            return scripts
         logging.warning(f'Failed to get Binary Ninja user directory')
         return []
 
@@ -170,10 +176,21 @@ class IPythonKernelApp:
 
 
 class BinjaRichJupyterWidget(RichJupyterWidget):
+    
+    def eventFilter(self, obj, event):
+        # Workaround for handling cases when Ctrl-C event
+        # is not received on KeyPress
+        if event.type() == QEvent.KeyRelease and \
+            self._control_key_down(event.modifiers(), include_command=False) and \
+            event.key() == Qt.Key_C and \
+            self._executing:
+                self.interrupt_kernel()
+                return True
+        return super().eventFilter(obj, event)
 
     # noinspection PyMethodMayBeStatic
     def interrupt_kernel(self):
-        os.killpg(os.getpid(), signal.SIGINT)
+        signal.raise_signal(signal.SIGINT)
 
 
 class IPythonWidget(GlobalAreaWidget):

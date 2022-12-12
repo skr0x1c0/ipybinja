@@ -288,15 +288,22 @@ class _BinjaMagicVariablesProvider:
         if func is None:
             return None
         return bn.Variable.from_core_variable(func, token_state.localVar)
+    
+    def take_snapshot(self) -> dict:
+        return {k: getattr(self, k) for k in self.MAGIC_VARIABLES}
 
 
 class UserNamespaceProvider(dict):
     def __init__(self, mapping=(), **kwargs):
         super().__init__(mapping, **kwargs)
-        self._magic_vars = _BinjaMagicVariablesProvider()
+        self._magic_var_provider = _BinjaMagicVariablesProvider()
         # Reserve keys for magic variables
         for var in _BinjaMagicVariablesProvider.MAGIC_VARIABLES:
             super().__setitem__(var, None)
+        self.update_magic_snapshot()
+            
+    def update_magic_snapshot(self) -> None:
+        self._magic_vars = self._magic_var_provider.take_snapshot()
 
     def __getitem__(self, k):
         if k in _BinjaMagicVariablesProvider.MAGIC_VARIABLES:
@@ -325,7 +332,7 @@ class UserNamespaceProvider(dict):
         return super().pop(k, v)
 
     def _get_magic_var(self, k):
-        return getattr(self._magic_vars, k)
+        return self._magic_vars[k]
 
     @classmethod
     def _check_mutate(cls, k):

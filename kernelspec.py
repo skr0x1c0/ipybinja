@@ -9,6 +9,7 @@ import sys
 import binaryninja as bn
 
 from .kernelrun import get_runner_path
+from .utils import detect_python_path
 
 
 class _KernelSpecInstallError(Exception):
@@ -16,14 +17,8 @@ class _KernelSpecInstallError(Exception):
 
 
 def _find_python_path() -> str:
-    path = os.path.abspath(os.path.join(os.__file__, '..', '..', '..', 'bin', 'python3'))
-    if os.path.exists(path):
-        return path
-    path = shutil.which('python3')
-    if os.path.exists(path):
-        return path
-    path = bn.Settings().get_string('python.binaryOverride')
-    if os.path.exists(path):
+    path = detect_python_path()
+    if path is not None:
         return path
     raise _KernelSpecInstallError('cannot determine python executable path')
 
