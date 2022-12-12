@@ -1,11 +1,11 @@
-# IPyBinja
+# Binja IPython
 
-IPyBinja brings the full features provided by [IPython](https://ipython.org) interactive shell to [Binary Ninja](https://binary.ninja). 
+Binja IPython brings the full features provided by [IPython](https://ipython.org) interactive shell to [Binary Ninja](https://binary.ninja). 
 
 https://user-images.githubusercontent.com/75971916/207032716-0cfb7e31-fb9e-4e7f-bb8c-e8f77df24bf6.mp4
 
 
-## Why use IPyBinja?
+## Why use Binja IPython?
 
 1. Provides features like syntax highlighting, magic commands and embedded figures which are not present in the Binary Ninja inbuilt Python console.
 2. Includes all features of inbuilt Python console like magic variables, auto-completion, history, etc.

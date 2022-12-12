@@ -1,6 +1,6 @@
 {
     "pluginmetadataversion": 2,
-    "name": "IPython console widget",
+    "name": "Binja IPython console",
     "type": [
         "core",
         "ui",
@@ -22,7 +22,7 @@
         "Windows"
     ],
     "dependencies": {},
-    "version": "0.2.6",
+    "version": "0.2.7",
     "author": "skr0x1c0",
     "minimumbinaryninjaversion": 3164
 }
