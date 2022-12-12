@@ -1,5 +1,7 @@
 # Using jupyter lab / notebook with IPyBinja
 
+NOTE: experimental
+
 ## Installation
 
 From Binary Ninja click "Install Jupyter Kernel" from Menu -> Plugins -> IPyBinja 
