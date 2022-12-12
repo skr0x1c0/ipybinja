@@ -131,9 +131,9 @@ class IPythonKernelApp:
         cls._configure_venv()
         cls._configure_path()
         app = IPKernelApp.instance(
-            kernel_class='ipybinja.ThreadedKernel',
-            outstream_class='ipybinja.os_router.BinjaStdOutRouter',
-            displayhook_class='ipybinja.os_router.BinjaDisplayHookRouter',
+            kernel_class=f'{__name__}.ThreadedKernel',
+            outstream_class=f'{__name__}.os_router.BinjaStdOutRouter',
+            displayhook_class=f'{__name__}.os_router.BinjaDisplayHookRouter',
             # We provide our own logger here because the default one from
             # traitlets adds a handler that expect stderr to be a regular
             # file object
