@@ -16,31 +16,19 @@ https://user-images.githubusercontent.com/75971916/207032716-0cfb7e31-fb9e-4e7f-
 
 ## Installation
 
-1. Clone this repository to the plugins directory of your Binary Ninja installation.  Example for macOS:
-```shell
-cd ~/Library/Application\ Support/Binary\ Ninja/plugins
-git clone https://github.com/skr0x1c0/ipybinja.git
-```
+This plugin is available on Binary Ninja plugin manager. But if you prefer to install from source, follow these steps:-
 
-2. If you have configured Binary Ninja to use a python virtual environment, you will need to activate the virtual environment before continuing.
+1. Open command pallete inside Binary Ninja and click "Install python3 module"
+2. Copy and paste the contents from `requirements.txt` in this repo to the popup window and click install
+3. Clone this repository to Binary Ninja user plugins directory
+4. Restart Binary Ninja
 
-```shell
-source ~/.venv_binja/bin/activate
-```
-
-3. Install the required dependencies:
-
-```shell
-cd ipybinja
-pip install -r requirements.txt
-```
-
-That's it!  You should now be able to use the IPython console widget in Binary Ninja.
 
 ## Usage
 
 1. For a list of additional magic commands provided by the plugin see [this document](./docs/magic_commands.md)
 2. For using Jupyter lab / notebook with Binary Ninja see [this document](./docs/notebook.md)
+
 
 ## Credits
 
