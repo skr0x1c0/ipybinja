@@ -21,7 +21,10 @@ class NavMagic(Magics):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._binja_ns = _BinjaMagicVariablesProvider()
+
+    @property
+    def _binja_ns(self):
+        return _BinjaMagicVariablesProvider(bnui.UIContext.activeContext())
 
     @classmethod
     def _parse_int(cls, arg: str, min_val: Optional[int] = None, max_val: Optional[int] = None) -> int:

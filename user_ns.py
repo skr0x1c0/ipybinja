@@ -1,5 +1,6 @@
 import threading
 from typing import Optional, Union, Mapping
+from collections import UserDict
 
 import binaryninja as bn
 import binaryninjaui as bnui
@@ -45,8 +46,12 @@ class _BinjaMagicVariablesProvider:
         'current_ui_view_location',
         'current_ui_action_context',
         'current_token',
-        'current_variable'
+        'current_variable',
+        'all_ns'
     }
+
+    def __init__(self, ctx: bnui.UIContext):
+        self._ctx = ctx
 
     @property
     def current_thread(self) -> threading.Thread:
@@ -226,7 +231,7 @@ class _BinjaMagicVariablesProvider:
 
     @property
     def current_ui_context(self) -> Optional[bnui.UIContext]:
-        return bnui.UIContext.activeContext()
+        return self._ctx
 
     @property
     def current_ui_view_frame(self) -> Optional[bnui.ViewFrame]:
@@ -288,22 +293,40 @@ class _BinjaMagicVariablesProvider:
         if func is None:
             return None
         return bn.Variable.from_core_variable(func, token_state.localVar)
+
+    @property
+    def all_ns(self) -> '_UIContextsProvider':
+        return _UIContextsProvider()
     
     def take_snapshot(self) -> dict:
         return {k: getattr(self, k) for k in self.MAGIC_VARIABLES}
 
 
+class _UIContextsProvider(UserDict):
+
+    @classmethod
+    def _ctx_id(cls, ctx: bnui.UIContext) -> str:
+        return hex(id(ctx))
+
+    def __init__(self):
+        super().__init__({self._ctx_id(ctx): _BinjaMagicVariablesProvider(ctx) for ctx in bnui.UIContext.allContexts()})
+
+    def __repr__(self) -> str:
+        return repr({k: repr(v.current_view) if v.current_view is not None else 'None' for k, v in self.items()})
+
+
 class UserNamespaceProvider(dict):
     def __init__(self, mapping=(), **kwargs):
         super().__init__(mapping, **kwargs)
-        self._magic_var_provider = _BinjaMagicVariablesProvider()
         # Reserve keys for magic variables
         for var in _BinjaMagicVariablesProvider.MAGIC_VARIABLES:
             super().__setitem__(var, None)
+        self._magic_vars = {}
         self.update_magic_snapshot()
             
     def update_magic_snapshot(self) -> None:
-        self._magic_vars = self._magic_var_provider.take_snapshot()
+        provider = _BinjaMagicVariablesProvider(bnui.UIContext.activeContext())
+        self._magic_vars = provider.take_snapshot()
 
     def __getitem__(self, k):
         if k in _BinjaMagicVariablesProvider.MAGIC_VARIABLES:
