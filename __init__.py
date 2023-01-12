@@ -63,13 +63,16 @@ class ZMQThreadedShell(ZMQInteractiveShell):
             return False
         return True
 
-    async def run_cell_async(self, *args, **kwargs) -> ExecutionResult:
+    async def _update_ns_and_run(self, *args, **kwargs):
         self.user_ns.update_magic_snapshot()
+        return await super().run_cell_async(*args, **kwargs)
+
+    async def run_cell_async(self, *args, **kwargs) -> ExecutionResult:
         loop = asyncio.get_running_loop()
         future = asyncio.ensure_future(loop.run_in_executor(
             self._executor,
             asyncio.run,
-            super().run_cell_async(*args, **kwargs)
+            self._update_ns_and_run(*args, **kwargs)
         ))
 
         # Raise KeyboardInterrupt on executor thread when we receive SIGINT
