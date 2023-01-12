@@ -194,19 +194,19 @@ class _BinjaMagicVariablesProvider:
         elif il_type == cls.LiftedILFunctionGraph:
             return function.lifted_il
         elif il_type == cls.LowLevelILSSAFormFunctionGraph:
-            return function.llil.ssa_form
+            return function.llil.ssa_form if function.llil is not None else None
         elif il_type == cls.MediumLevelILFunctionGraph:
             return function.mlil
         elif il_type == cls.MediumLevelILSSAFormFunctionGraph:
-            return function.mlil.ssa_form
+            return function.mlil.ssa_form if function.mlil is not None else None
         elif il_type == cls.MappedMediumLevelILFunctionGraph:
             return function.mapped_medium_level_il
         elif il_type == cls.MappedMediumLevelILSSAFormFunctionGraph:
-            return function.mapped_medium_level_il.ssa_form
+            return function.mapped_medium_level_il.ssa_form if function.mapped_medium_level_il is not None else None
         elif il_type == cls.HighLevelILFunctionGraph:
             return function.hlil
         elif il_type == cls.HighLevelILSSAFormFunctionGraph:
-            return function.hlil.ssa_form
+            return function.hlil.ssa_form if function.hlil is not None else None
         elif il_type == cls.HighLevelLanguageRepresentationFunctionGraph:
             return None
         raise Exception(f'unexpected il type {il_type}')
