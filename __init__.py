@@ -8,6 +8,7 @@ import types
 import threading
 import signal
 import ctypes
+import dataclasses
 
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
@@ -22,6 +23,7 @@ from binaryninjaui import GlobalAreaWidget, GlobalArea
 from binaryninja import PluginCommand
 from ipykernel.kernelapp import IPKernelApp
 from ipykernel.ipkernel import IPythonKernel, ZMQInteractiveShell
+from jupyter_client.connect import KernelConnectionInfo
 from IPython.core.interactiveshell import ExecutionResult
 
 # Hack required for bundled PySide6 to work with QtPy
@@ -42,6 +44,7 @@ from .user_ns import UserNamespaceProvider
 from .os_router import BinjaExceptionHookRouter
 from .magic_functions import NavMagic, PackagingMagics
 from .kernelspec import InstallKernelSpecTask
+from .kernelrun import read_env_connection_config, ConnectionConfig
 
 
 class ZMQThreadedShell(ZMQInteractiveShell):
@@ -130,6 +133,19 @@ class IPythonKernelApp:
         logging.debug(f'configure_path modified PATH to {os.environ["PATH"]}')
 
     @classmethod
+    def apply_env_connection_config(cls, kernel: IPKernelApp) -> bool:
+        config = read_env_connection_config()
+        if config is None:
+            return False
+        kernel_config: KernelConnectionInfo = {}
+        for k, v in dataclasses.asdict(config).items():
+            if v is not None and k != 'file':
+                kernel_config[k] = v
+        kernel.connection_file = config.file or "kernel-%s.json" % os.getpid()
+        kernel.load_connection_info(kernel_config)
+        return True
+
+    @classmethod
     def _create_app(cls) -> IPKernelApp:
         cls._configure_venv()
         cls._configure_path()
@@ -144,11 +160,7 @@ class IPythonKernelApp:
             user_ns=UserNamespaceProvider(),
             exec_files=cls._get_exec_files()
         )
-        connection_file = cls._get_env_connection_file()
-        if connection_file is not None:
-            logging.warning(f'using IPyConsole connection file {connection_file} from '
-                            f'IPYTHON_BINJA_CONNECTION_FILE env variable')
-            app.connection_file = connection_file
+        cls.apply_env_connection_config(app)
         app.initialize()
         app.shell.set_completer_frame()
         app.shell.register_magics(NavMagic, PackagingMagics)
@@ -176,6 +188,23 @@ class IPythonKernelApp:
     @classmethod
     def _get_env_connection_file(cls) -> Optional[str]:
         return os.environ.get('IPYTHON_BINJA_CONNECTION_FILE', None)
+    
+    @property
+    def config(self) -> ConnectionConfig:
+        config = ConnectionConfig(
+            file=self.app.abs_connection_file,
+            ip=str(self.app.ip),
+            key=self.app.session.key.decode(),
+            transport=str(self.app.transport),
+            hb_port=self.app.hb_port,
+            iopub_port=self.app.iopub_port,
+            shell_port=self.app.shell_port,
+            stdin_port=self.app.stdin_port,
+            control_port=self.app.control_port,
+            signature_scheme=self.app.session.signature_scheme,
+            kernel_name=str(self.app.kernel_name),
+        )
+        return config
 
 
 class BinjaRichJupyterWidget(RichJupyterWidget):
@@ -206,8 +235,17 @@ class IPythonWidget(GlobalAreaWidget):
         self._thread_id = threading.current_thread().native_id
 
     def _create_widget(self) -> RichJupyterWidget:
-        self.kernel_manager = QtKernelManager(connection_file=self.kernel.connection_file)
-        self.kernel_manager.load_connection_file()
+        self.kernel_manager = QtKernelManager()
+        config = self.kernel.config
+        self.kernel_manager.ip = config.ip
+        self.kernel_manager.stdin_port = config.stdin_port
+        self.kernel_manager.control_port = config.control_port
+        self.kernel_manager.hb_port = config.hb_port
+        self.kernel_manager.session.signature_scheme = config.signature_scheme
+        self.kernel_manager.session.key = config.key.encode()
+        self.kernel_manager.shell_port = config.shell_port
+        self.kernel_manager.transport = config.transport
+        self.kernel_manager.iopub_port = config.iopub_port
         self.kernel_manager.client_factory = QtKernelClient
         self.kernel_client = self.kernel_manager.client()
         self.kernel_client.start_channels()
