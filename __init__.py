@@ -13,9 +13,11 @@ import dataclasses
 from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 
+import jupyter_client.session
 import qasync
 
 import binaryninja as bn
+import traitlets
 
 from PySide6.QtCore import QEvent, Qt
 from PySide6.QtWidgets import QApplication, QVBoxLayout
@@ -36,7 +38,7 @@ sys.modules["PySide6.QtPrintSupport"].QPrintDialog = types.ModuleType("EmptyQPag
 os.environ["QT_API"] = "PySide6"
 
 from qtconsole.rich_jupyter_widget import RichJupyterWidget
-from qtconsole.manager import QtKernelManager
+from qtconsole.manager import QtKernelManager, QtKernelManagerMixin
 from qtconsole.client import QtKernelClient
 from qtconsole.styles import default_dark_style_sheet, default_dark_syntax_style
 
@@ -66,9 +68,13 @@ class ZMQThreadedShell(ZMQInteractiveShell):
             return False
         return True
 
-    async def _update_ns_and_run(self, *args, **kwargs):
-        self.user_ns.update_magic_snapshot()
-        return await super().run_cell_async(*args, **kwargs)
+    async def _update_ns_and_run(self, *args, cell_id, **kwargs):
+        assert cell_id is not None
+        session = cell_id['session']
+        ipybinja_client = cell_id['ipybinja_client']
+        remote_client_id = session if not ipybinja_client else None
+        self.user_ns.update_magic_snapshot(remote_client_id)
+        return await super().run_cell_async(*args, **kwargs, cell_id=cell_id['cellId'])
 
     async def run_cell_async(self, *args, **kwargs) -> ExecutionResult:
         loop = asyncio.get_running_loop()
@@ -94,6 +100,17 @@ class ZMQThreadedShell(ZMQInteractiveShell):
 
 class ThreadedKernel(IPythonKernel):
     shell_class = ZMQThreadedShell
+
+    async def execute_request(self, stream, ident, parent):
+        # HACK: Extract information from message to pass to shell
+        # This information is used by shell to ID remote clients
+        metadata = parent.setdefault("metadata", {})
+        metadata['cellId'] = {
+            'cellId': metadata.get('cellId', None),
+            'session': parent.get('header', {}).get('session'),
+            'ipybinja_client': parent.get('header', {}).get('ipybinjaClient', False)
+        }
+        return await super().execute_request(stream, ident, parent)
 
 
 class IPythonKernelApp:
@@ -225,6 +242,27 @@ class BinjaRichJupyterWidget(RichJupyterWidget):
         signal.raise_signal(signal.SIGINT)
 
 
+class CustomKernelClientSession(jupyter_client.session.Session):
+
+    def msg_header(self, *args, **kwargs):
+        header = super().msg_header(*args, **kwargs)
+        # Used by the kernel to determine if message is from embedded
+        # IPython console
+        header['ipybinjaClient'] = True
+        return header
+
+
+class CustomKernelClient(QtKernelClient):
+    session = traitlets.Instance(f'{__name__}.CustomKernelClientSession')
+
+
+class CustomKernelManager(QtKernelManager):
+    client_class = traitlets.DottedObjectName(f'{__name__}.CustomKernelClient')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs, session=CustomKernelClientSession())
+
+
 class IPythonWidget(GlobalAreaWidget):
     def __init__(self, name):
         super(IPythonWidget, self).__init__(name)
@@ -235,7 +273,7 @@ class IPythonWidget(GlobalAreaWidget):
         self._thread_id = threading.current_thread().native_id
 
     def _create_widget(self) -> RichJupyterWidget:
-        self.kernel_manager = QtKernelManager()
+        self.kernel_manager = CustomKernelManager()
         config = self.kernel.config
         self.kernel_manager.ip = config.ip
         self.kernel_manager.stdin_port = config.stdin_port
@@ -246,7 +284,6 @@ class IPythonWidget(GlobalAreaWidget):
         self.kernel_manager.shell_port = config.shell_port
         self.kernel_manager.transport = config.transport
         self.kernel_manager.iopub_port = config.iopub_port
-        self.kernel_manager.client_factory = QtKernelClient
         self.kernel_client = self.kernel_manager.client()
         self.kernel_client.start_channels()
         widget = BinjaRichJupyterWidget(

@@ -8,7 +8,7 @@ import binaryninja as bn
 import binaryninjaui as bnui
 
 from IPython.core.magic import Magics, magics_class, line_magic
-from .user_ns import _BinjaMagicVariablesProvider
+from .user_ns import BinjaMagicVarSnapshot
 from .utils import detect_python_path
 
 
@@ -24,7 +24,7 @@ class NavMagic(Magics):
 
     @property
     def _binja_ns(self):
-        return _BinjaMagicVariablesProvider(bnui.UIContext.activeContext())
+        return BinjaMagicVarSnapshot(bnui.UIContext.activeContext())
 
     @classmethod
     def _parse_int(cls, arg: str, min_val: Optional[int] = None, max_val: Optional[int] = None) -> int:
@@ -92,7 +92,8 @@ class PackagingMagics(Magics):
     def pip(self, line):
         python = detect_python_path()
         if python is None:
-            print(f'Error: failed to detect path to python binary. Configure python.binaryOverride setting in Binary Ninja to fix this problem')
+            print(f'Error: failed to detect path to python binary. '
+                  f'Configure python.binaryOverride setting in Binary Ninja to fix this problem')
             return
         
         if sys.platform == "win32":

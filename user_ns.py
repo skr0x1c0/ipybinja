@@ -1,335 +1,182 @@
+import logging
 import threading
 from typing import Optional, Union, Mapping
-from collections import UserDict
+from weakref import WeakValueDictionary
 
 import binaryninja as bn
 import binaryninjaui as bnui
 
 
-def _with_ref(v, parent):
-    # Keep a reference of parent c++ object in v
-    # This prevents parent from being destroyed
-    # while v is still alive
-    if v is not None:
-        v._self_ref = parent
-    return v
+ILBasicBlockTypes = Union[bn.LowLevelILBasicBlock, bn.MediumLevelILBasicBlock, bn.HighLevelILBasicBlock]
+ILInstructionTypes = Union[bn.LowLevelILInstruction, bn.MediumLevelILInstruction, bn.HighLevelILInstruction]
 
 
-class _BinjaMagicVariablesProvider:
-    MAGIC_VARIABLES = {
-        'current_thread',
-        'current_view',
-        'bv',
-        'current_function',
-        'current_basic_block',
-        'current_address',
-        'here',
-        'current_selection',
-        'current_raw_offset',
-        'current_llil',
-        'current_mlil',
-        'current_hlil',
-        'current_data_var',
-        'current_symbol',
-        'current_symbols',
-        'current_segment',
-        'current_sections',
-        'current_comment',
-        'current_il_index',
-        'current_il_function',
-        'current_il_instruction',
-        'current_il_basic_block',
-        'current_ui_context',
-        'current_ui_view_frame',
-        'current_ui_view',
-        'current_ui_action_handler',
-        'current_ui_view_location',
-        'current_ui_action_context',
-        'current_token',
-        'current_variable',
-        'all_ns'
-    }
+class BinjaMagicVarSnapshot:
 
-    def __init__(self, ctx: bnui.UIContext):
-        self._ctx = ctx
+    current_ui_context: Optional[bnui.UIContext]
+    current_ui_view_frame: Optional[bnui.ViewFrame]
+    current_ui_view: Optional[bnui.View]
+    current_ui_action_handler: Optional[bnui.UIActionHandler]
+    current_ui_view_location: Optional[bnui.ViewLocation]
+    current_ui_action_context: Optional[bnui.UIActionContext]
+    current_token: Optional[bn.InstructionTextToken]
+    current_function: Optional[bn.Function]
+    current_variable: Optional[bn.Variable]
+    current_il_function: Optional[Union[bn.Function, bn.ILFunctionType]]
+    current_il_index: Optional[int]
+    current_il_basic_block: Optional[ILBasicBlockTypes]
+    current_il_instruction: Optional[ILInstructionTypes]
+    current_view: Optional[bn.BinaryView]
+    bv: Optional[bn.BinaryView]
+    current_address: int
+    here: int
+    current_comment: Optional[str]
+    current_sections: list[bn.Section]
+    current_segment: Optional[bn.Segment]
+    current_symbols: list[bn.CoreSymbol]
+    current_symbol: Optional[bn.CoreSymbol]
+    current_data_var: Optional[bn.DataVariable]
+    current_hlil: Optional[bn.HighLevelILFunction]
+    current_mlil: Optional[bn.MediumLevelILFunction]
+    current_llil: Optional[bn.LowLevelILFunction]
+    current_raw_offset: int
+    current_selection: Optional[tuple[int, int]]
+    current_basic_block: Optional[bn.BasicBlock]
+    current_thread: threading.Thread
 
-    @property
-    def current_thread(self) -> threading.Thread:
-        return threading.current_thread()
-
-    @property
-    def current_view(self) -> Optional[bn.BinaryView]:
-        frame = self.current_ui_view_frame
-        if frame is None:
-            return None
-        return _with_ref(frame.getCurrentBinaryView(), frame)
-
-    @property
-    def bv(self) -> Optional[bn.BinaryView]:
-        return self.current_view
-
-    @property
-    def current_function(self) -> Optional[bn.Function]:
+    def __init__(self, ctx: Optional[bnui.UIContext]):
+        self.current_ui_context = ctx
+        self.current_ui_view_frame = ctx.getCurrentViewFrame() if ctx else None
+        self.current_ui_view = ctx.getCurrentView() if ctx else None
+        self.current_ui_action_handler = ctx.getCurrentActionHandler() if ctx else None
+        view_frame = self.current_ui_view_frame
+        view = self.current_ui_view
+        self.current_ui_view_location = view_frame.getViewLocation() if view_frame else None
+        self.current_ui_action_context = view.actionContext() if view else None
+        action_ctx = self.current_ui_action_context
+        token_state = action_ctx.token if action_ctx else None
+        self.current_token = token_state.token if token_state and token_state.valid else None
         view_location = self.current_ui_view_location
-        if view_location is None or not view_location.isValid():
-            return None
-        return view_location.getFunction()
+        self.current_function = view_location.getFunction() if view_location else None
+        func = self.current_function
+        self.current_variable = bn.Variable.from_core_variable(func, token_state.localVar) \
+            if func and token_state and token_state.localVarValid else None
+        self.current_il_function = self._get_il_function(func, view_location)
+        il_func = self.current_il_function
+        self.current_il_index = view_location.getInstrIndex() if view_location else None
+        il_index = self.current_il_index
+        self.current_il_basic_block = il_func.get_basic_block_at(il_index) if il_func and il_index else None
+        self.current_il_instruction = il_func[il_index] \
+            if il_func and il_index and il_index < len(il_func) is not None else None
+        self.current_view = view_frame.getCurrentBinaryView() if view_frame else None
+        bv = self.current_view
+        self.bv = bv
+        self.current_address = view_location.getOffset() if view_location else 0
+        self.here = self.current_address
+        address = self.current_address if view_location and view_location.isValid() else None
+        self.current_comment = bv.get_comment_at(address) if bv and address is not None else None
+        self.current_sections = bv.get_sections_at(address) if bv and address is not None else []
+        self.current_segment = bv.get_segment_at(address) if bv and address is not None else None
+        self.current_symbols = bv.get_symbols(address, 1) if bv and address is not None else []
+        self.current_symbol = bv.get_symbol_at(address) if bv and address is not None else None
+        self.current_data_var = bv.get_data_var_at(address) if bv and address is not None else None
+        self.current_hlil = func.hlil if func else None
+        self.current_mlil = func.mlil if func else None
+        self.current_llil = func.llil if func else None
+        self.current_raw_offset = bv.get_data_offset_for_address(address) if bv and address is not None else 0
+        self.current_selection = view_frame.getSelectionOffsets() if view_frame else None
+        self.current_basic_block = func.get_basic_block_at(address) if func and address is not None else None
+        self.current_thread = threading.current_thread()
 
-    @property
-    def current_basic_block(self) -> Optional[bn.BasicBlock]:
-        function = self.current_function
-        location = self.current_address
-        if function is None:
-            return None
-        return function.get_basic_block_at(location)
-
-    @property
-    def current_address(self) -> int:
-        vl = self.current_ui_view_location
-        if vl is None:
-            return 0
-        return vl.getOffset()
-
-    @property
-    def here(self) -> int:
-        return self.current_address
-
-    @property
-    def current_selection(self) -> Optional[tuple[int, int]]:
-        frame = self.current_ui_view_frame
-        if frame is None:
-            return None
-        selection = frame.getSelectionOffsets()
-        return selection
-
-    @property
-    def current_raw_offset(self) -> int:
-        bv = self.bv
-        if not bv:
-            return 0
-        return bv.get_data_offset_for_address(self.current_address)
-
-    @property
-    def current_llil(self) -> Optional[bn.LowLevelILFunction]:
-        function = self.current_function
-        if function is None:
-            return None
-        return function.llil
-
-    @property
-    def current_mlil(self) -> Optional[bn.MediumLevelILFunction]:
-        function = self.current_function
-        if function is None:
-            return None
-        return function.mlil
-
-    @property
-    def current_hlil(self) -> Optional[bn.HighLevelILFunction]:
-        function = self.current_function
-        if function is None:
-            return None
-        return function.hlil
-
-    @property
-    def current_data_var(self) -> Optional[bn.DataVariable]:
-        bv = self.bv
-        if bv is None:
-            return None
-        return bv.get_data_var_at(self.current_address)
-
-    @property
-    def current_symbol(self) -> Optional[bn.CoreSymbol]:
-        bv = self.bv
-        if bv is None:
-            return None
-        return bv.get_symbol_at(self.current_address)
-
-    @property
-    def current_symbols(self) -> list[bn.CoreSymbol]:
-        bv = self.bv
-        if bv is None:
-            return []
-        return bv.get_symbols(self.current_address, 1)
-
-    @property
-    def current_segment(self) -> Optional[bn.Segment]:
-        bv = self.bv
-        if bv is None:
-            return None
-        return bv.get_segment_at(self.current_address)
-
-    @property
-    def current_sections(self) -> list[bn.Section]:
-        bv = self.bv
-        if bv is None:
-            return []
-        return bv.get_sections_at(self.current_address)
-
-    @property
-    def current_comment(self) -> Optional[str]:
-        bv = self.bv
-        if bv is None:
-            return None
-        return bv.get_comment_at(self.current_address)
-
-    @property
-    def current_il_index(self) -> Optional[int]:
-        view_location = self.current_ui_view_location
-        if view_location is None or not view_location.isValid():
-            return None
-        return view_location.getInstrIndex()
-
-    @property
-    def current_il_function(self) -> Optional[Union[bn.Function, bn.ILFunctionType]]:
-        function = self.current_function
-        view_location = self.current_ui_view_location
+    @classmethod
+    def _get_il_function(cls, function: Optional[bn.Function], view_location: Optional[bnui.ViewLocation]) \
+            -> Optional[Union[bn.Function, bn.ILFunctionType]]:
+        from binaryninja import FunctionGraphType as GraphType
         if function is None or view_location is None or not view_location.isValid():
             return None
         il_type = view_location.getILViewType()
-        cls = bn.FunctionGraphType
-        if il_type == cls.NormalFunctionGraph:
+        if il_type == GraphType.NormalFunctionGraph:
             return None
-        elif il_type == cls.LowLevelILFunctionGraph:
+        elif il_type == GraphType.LowLevelILFunctionGraph:
             return function.llil
-        elif il_type == cls.LiftedILFunctionGraph:
+        elif il_type == GraphType.LiftedILFunctionGraph:
             return function.lifted_il
-        elif il_type == cls.LowLevelILSSAFormFunctionGraph:
+        elif il_type == GraphType.LowLevelILSSAFormFunctionGraph:
             return function.llil.ssa_form if function.llil is not None else None
-        elif il_type == cls.MediumLevelILFunctionGraph:
+        elif il_type == GraphType.MediumLevelILFunctionGraph:
             return function.mlil
-        elif il_type == cls.MediumLevelILSSAFormFunctionGraph:
+        elif il_type == GraphType.MediumLevelILSSAFormFunctionGraph:
             return function.mlil.ssa_form if function.mlil is not None else None
-        elif il_type == cls.MappedMediumLevelILFunctionGraph:
+        elif il_type == GraphType.MappedMediumLevelILFunctionGraph:
             return function.mapped_medium_level_il
-        elif il_type == cls.MappedMediumLevelILSSAFormFunctionGraph:
+        elif il_type == GraphType.MappedMediumLevelILSSAFormFunctionGraph:
             return function.mapped_medium_level_il.ssa_form if function.mapped_medium_level_il is not None else None
-        elif il_type == cls.HighLevelILFunctionGraph:
+        elif il_type == GraphType.HighLevelILFunctionGraph:
             return function.hlil
-        elif il_type == cls.HighLevelILSSAFormFunctionGraph:
+        elif il_type == GraphType.HighLevelILSSAFormFunctionGraph:
             return function.hlil.ssa_form if function.hlil is not None else None
-        elif il_type == cls.HighLevelLanguageRepresentationFunctionGraph:
+        elif il_type == GraphType.HighLevelLanguageRepresentationFunctionGraph:
             return None
         raise Exception(f'unexpected il type {il_type}')
 
-    @property
-    def current_il_instruction(self) -> Optional:
-        function = self.current_il_function
-        instr_index = self.current_il_index
-        if function is None or instr_index is None:
-            return None
-        if instr_index > len(function):
-            return None
-        return function[instr_index]
 
-    @property
-    def current_il_basic_block(self) -> Optional:
-        function = self.current_il_function
-        instr_index = self.current_il_index
-        if function is None or instr_index is None:
-            return None
-        return function.get_basic_block_at(instr_index)
+class _MagicVariableSnapshot(BinjaMagicVarSnapshot):
 
-    @property
-    def current_ui_context(self) -> Optional[bnui.UIContext]:
-        return self._ctx
-
-    @property
-    def current_ui_view_frame(self) -> Optional[bnui.ViewFrame]:
-        ctx = self.current_ui_context
-        if ctx is None:
-            return None
-        return _with_ref(ctx.getCurrentViewFrame(), ctx)
-
-    @property
-    def current_ui_view(self) -> Optional[bnui.View]:
-        ctx = self.current_ui_context
-        if ctx is None:
-            return None
-        return _with_ref(ctx.getCurrentView(), ctx)
-
-    @property
-    def current_ui_action_handler(self) -> Optional[bnui.UIActionHandler]:
-        ctx = self.current_ui_context
-        if ctx is None:
-            return None
-        return _with_ref(ctx.getCurrentActionHandler(), ctx)
-
-    @property
-    def current_ui_view_location(self) -> Optional[bnui.ViewLocation]:
-        view_frame = self.current_ui_view_frame
-        if view_frame is None:
-            return None
-        return _with_ref(view_frame.getViewLocation(), view_frame)
-
-    @property
-    def current_ui_action_context(self):
-        view = self.current_ui_view
-        if view is not None:
-            return _with_ref(view.actionContext(), view)
-        ctx = self.current_ui_context
-        if ctx is None:
-            return None
-        return _with_ref(ctx.getCurrentActionHandler(), ctx)
-
-    @property
-    def current_token(self) -> Optional[bn.InstructionTextToken]:
-        action_ctx = self.current_ui_action_context
-        if action_ctx is None or not hasattr(action_ctx, 'token'):
-            return None
-        token_state = action_ctx.token
-        if not token_state.valid:
-            return None
-        return token_state.token
-
-    @property
-    def current_variable(self) -> Optional[bn.Variable]:
-        action_ctx = self.current_ui_action_context
-        if action_ctx is None or not hasattr(action_ctx, 'token'):
-            return None
-        token_state = action_ctx.token
-        if not token_state.localVarValid:
-            return None
-        func = self.current_function
-        if func is None:
-            return None
-        return bn.Variable.from_core_variable(func, token_state.localVar)
-
-    @property
-    def all_ns(self) -> '_UIContextsProvider':
-        return _UIContextsProvider()
-    
-    def take_snapshot(self) -> dict:
-        return {k: getattr(self, k) for k in self.MAGIC_VARIABLES}
-
-
-class _UIContextsProvider(UserDict):
-
-    @classmethod
-    def _ctx_id(cls, ctx: bnui.UIContext) -> str:
-        return hex(id(ctx))
-
-    def __init__(self):
-        super().__init__({self._ctx_id(ctx): _BinjaMagicVariablesProvider(ctx) for ctx in bnui.UIContext.allContexts()})
-
-    def __repr__(self) -> str:
-        return repr({k: repr(v.current_view) if v.current_view is not None else 'None' for k, v in self.items()})
+    def __init__(self, ctx: Optional[bnui.UIContext]):
+        super().__init__(ctx)
+        self.ipy_set_magic_context = None
+        self.ipy_current_magic_context = None
+        self.ipy_all_magic_contexts = None
 
 
 class UserNamespaceProvider(dict):
+
+    _MAGIC_VARS = set(vars(_MagicVariableSnapshot(None)).keys())
+
     def __init__(self, mapping=(), **kwargs):
         super().__init__(mapping, **kwargs)
         # Reserve keys for magic variables
-        for var in _BinjaMagicVariablesProvider.MAGIC_VARIABLES:
+        for var in self._MAGIC_VARS:
             super().__setitem__(var, None)
-        self._magic_vars = {}
-        self.update_magic_snapshot()
+        self._session_context_overrides = WeakValueDictionary()
+        self._magic_vars = _MagicVariableSnapshot(None)
             
-    def update_magic_snapshot(self) -> None:
-        provider = _BinjaMagicVariablesProvider(bnui.UIContext.activeContext())
-        self._magic_vars = provider.take_snapshot()
+    def update_magic_snapshot(self, remote_client_id: Optional[str]) -> None:
+        if remote_client_id:
+            context = self._session_context_overrides.get(remote_client_id, None)
+            if context is None:
+                available_contexts = self._all_bnui_contexts
+                if len(available_contexts) == 1:
+                    context = available_contexts[0]
+                    self._session_context_overrides[remote_client_id] = context
+                    logging.info(f'automatically selecting ui context {context} for current IPython remote client')
+                else:
+                    logging.warning(f'no UI context is set for current IPython remote client, '
+                                    f'use ipynb_set_magic_context to select a UI context.\n'
+                                    f'Available contexts: {available_contexts}')
+        else:
+            context = bnui.UIContext.activeContext()
+
+        self._magic_vars = _MagicVariableSnapshot(context)
+        if remote_client_id is None:
+            return
+
+        self._magic_vars.ipy_set_magic_context = \
+            lambda ctx: self._set_session_override(remote_client_id, ctx)
+        self._magic_vars.ipy_current_magic_context = context
+        self._magic_vars.ipy_all_magic_contexts = self._all_bnui_contexts
+
+    def _set_session_override(self, session: Optional[str], context: Optional[bnui.UIContext]):
+        if session is None:
+            raise Exception('ipynb_set_magic_context can only be used outside embedded IPython Console')
+        self._session_context_overrides[session] = context
+
+    @property
+    def _all_bnui_contexts(self) -> list[bnui.UIContext]:
+        return [context for context in bnui.UIContext.allContexts()]
 
     def __getitem__(self, k):
-        if k in _BinjaMagicVariablesProvider.MAGIC_VARIABLES:
+        if k in self._MAGIC_VARS:
             return self._get_magic_var(k)
         return super().__getitem__(k)
 
@@ -342,7 +189,7 @@ class UserNamespaceProvider(dict):
         return super().__delitem__(k)
 
     def get(self, k, default=None):
-        if k in _BinjaMagicVariablesProvider.MAGIC_VARIABLES:
+        if k in self._MAGIC_VARS:
             return self._get_magic_var(k)
         return super().get(k, default)
 
@@ -355,16 +202,16 @@ class UserNamespaceProvider(dict):
         return super().pop(k, v)
 
     def _get_magic_var(self, k):
-        return self._magic_vars[k]
+        return getattr(self._magic_vars, k)
 
     @classmethod
     def _check_mutate(cls, k):
-        if k in _BinjaMagicVariablesProvider.MAGIC_VARIABLES:
+        if k in cls._MAGIC_VARS:
             raise Exception(f'cannot mutate magic variable {k}')
 
     @classmethod
     def _check_update(cls, k, v):
-        if k in _BinjaMagicVariablesProvider.MAGIC_VARIABLES and v is not None:
+        if k in cls._MAGIC_VARS and v is not None:
             raise Exception(f'cannot update magic variable {k} to {v}')
 
     def update(self, m: Mapping, **kwargs) -> None:
