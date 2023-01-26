@@ -77,6 +77,29 @@ class NavMagic(Magics):
         except _NavMagicError as e:
             logging.error(e)
 
+    def _navf(self, arg: str):
+        ns = self._binja_ns
+        try:
+            index = int(arg)
+            if index >= len(ns.current_view.functions):
+                raise _NavMagicError(f'function index {index} out of range')
+            fn = ns.current_view.functions[int(arg)]
+        except ValueError:
+            fn = ns.current_view.get_functions_by_name(arg)
+            if fn is None:
+                raise _NavMagicError(f'function "{arg}" not found')
+        view = ns.current_ui_view
+        if view is None:
+            raise _NavMagicError(f'current_ui_view is None')
+        bn.execute_on_main_thread_and_wait(lambda: view.navigateToFunction(fn, 0))
+
+    @line_magic
+    def navf(self, parameter_s=''):
+        try:
+            self._navf(parameter_s)
+        except _NavMagicError as e:
+            logging.error(e)
+
     def _update_view_location(self, vl: bnui.ViewLocation) -> bool:
         view = self._binja_ns.current_ui_view
         if view is None:
