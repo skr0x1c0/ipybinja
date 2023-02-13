@@ -48,8 +48,9 @@ def _install_kernel_spec(overwrite: bool = False):
     kernels_dir = _find_jupyter_kernels_dir()
     config = {
         'argv': [
-            python_path, runner_script, binary_ninja_executable, '--f', '{connection_file}'
+            python_path, runner_script, binary_ninja_executable, '-f', '{connection_file}'
         ],
+        'name': 'ipybinja',
         'display_name': 'Binary Ninja',
         'interrupt_mode': 'message',
         'language': "python"
