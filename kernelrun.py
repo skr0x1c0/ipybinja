@@ -59,7 +59,7 @@ if __name__ == '__main__':
     parser.add_argument('--shell', type=int, help='shell port', required=False)
     parser.add_argument('--transport', type=str, help='transport type', required=False)
     parser.add_argument('--iopub', type=int, help='iopub port', required=False)
-    parser.add_argument('--f', type=str, help='connection file', required=False)
+    parser.add_argument('-f', type=str, help='connection file', required=False)
     args = parser.parse_args()
 
     assert os.path.exists(args.binary_ninja)
