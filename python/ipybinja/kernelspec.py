@@ -50,7 +50,7 @@ def _install_kernel_spec(overwrite: bool = False):
         'argv': [
             python_path, runner_script, binary_ninja_executable, '-f', '{connection_file}'
         ],
-        'name': 'ipybinja',
+        'name': 'ipybinja_plugin',
         'display_name': 'Binary Ninja',
         'interrupt_mode': 'message',
         'language': "python"
