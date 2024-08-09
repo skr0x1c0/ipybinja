@@ -1,17 +1,21 @@
 import logging
 import threading
+import weakref
+
 from typing import Optional, Union, Mapping
-from weakref import WeakValueDictionary
+from weakref import WeakValueDictionary, WeakKeyDictionary, proxy
 
 import binaryninja as bn
 import binaryninjaui as bnui
+
+from wrapt import ObjectProxy
 
 
 ILBasicBlockTypes = Union[bn.LowLevelILBasicBlock, bn.MediumLevelILBasicBlock, bn.HighLevelILBasicBlock]
 ILInstructionTypes = Union[bn.LowLevelILInstruction, bn.MediumLevelILInstruction, bn.HighLevelILInstruction]
 
 
-class BinjaMagicVarSnapshot:
+class BinjaContextVarSnapshot:
 
     current_ui_context: Optional[bnui.UIContext]
     current_ui_view_frame: Optional[bnui.ViewFrame]
@@ -120,18 +124,40 @@ class BinjaMagicVarSnapshot:
         raise Exception(f'unexpected il type {il_type}')
 
 
-class _MagicVariableSnapshot(BinjaMagicVarSnapshot):
+class Singleton(type):
+    _instances = {}
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
 
-    def __init__(self, ctx: Optional[bnui.UIContext]):
-        super().__init__(ctx)
-        self.ipy_set_magic_context = None
-        self.ipy_current_magic_context = None
-        self.ipy_all_magic_contexts = None
+
+class ContextVarSnapshotManager(metaclass=Singleton):
+
+    _cache: WeakKeyDictionary
+
+    def __init__(self):
+        self._cache = WeakKeyDictionary()
+    
+    def update_cache(self):
+        contexts = set(bnui.UIContext.allContexts())
+        for k in list(self._cache.keys()):
+            if k not in contexts:
+                del self._cache[k]
+        for ctx in contexts:
+            snapshot = BinjaContextVarSnapshot(ctx)
+            if ctx in self._cache:
+                self._cache[ctx].__wrapped__ = snapshot
+            else:
+                self._cache[ctx] = ObjectProxy(snapshot)
+
+    def get_snapshot(self, ctx: bnui.UIContext) -> BinjaContextVarSnapshot:
+        return proxy(self._cache[ctx])
 
 
 class UserNamespaceProvider(dict):
 
-    _MAGIC_VARS = set(vars(_MagicVariableSnapshot(None)).keys())
+    _MAGIC_VARS = set(vars(BinjaContextVarSnapshot(None)).keys())
 
     def __init__(self, mapping=(), **kwargs):
         super().__init__(mapping, **kwargs)
@@ -139,41 +165,17 @@ class UserNamespaceProvider(dict):
         for var in self._MAGIC_VARS:
             super().__setitem__(var, None)
         self._session_context_overrides = WeakValueDictionary()
-        self._magic_vars = _MagicVariableSnapshot(None)
+        self._magic_vars = BinjaContextVarSnapshot(None)
             
     def update_magic_snapshot(self, remote_client_id: Optional[str]) -> None:
         if remote_client_id:
-            context = self._session_context_overrides.get(remote_client_id, None)
-            if context is None:
-                available_contexts = self._all_bnui_contexts
-                if len(available_contexts) == 1:
-                    context = available_contexts[0]
-                    self._session_context_overrides[remote_client_id] = context
-                    logging.info(f'automatically selecting ui context {context} for current IPython remote client')
-                else:
-                    logging.warning(f'no UI context is set for current IPython remote client, '
-                                    f'use ipynb_set_magic_context to select a UI context.\n'
-                                    f'Available contexts: {available_contexts}')
+            context = None
         else:
             context = bnui.UIContext.activeContext()
 
-        self._magic_vars = _MagicVariableSnapshot(context)
-        if remote_client_id is None:
-            return
-
-        self._magic_vars.ipy_set_magic_context = \
-            lambda ctx: self._set_session_override(remote_client_id, ctx)
-        self._magic_vars.ipy_current_magic_context = context
-        self._magic_vars.ipy_all_magic_contexts = self._all_bnui_contexts
-
-    def _set_session_override(self, session: Optional[str], context: Optional[bnui.UIContext]):
-        if session is None:
-            raise Exception('ipynb_set_magic_context can only be used outside embedded IPython Console')
-        self._session_context_overrides[session] = context
-
-    @property
-    def _all_bnui_contexts(self) -> list[bnui.UIContext]:
-        return [context for context in bnui.UIContext.allContexts()]
+        ContextVarSnapshotManager().update_cache()
+        self._magic_vars = ContextVarSnapshotManager().get_snapshot(context) if context else \
+            BinjaContextVarSnapshot(None)
 
     def __getitem__(self, k):
         if k in self._MAGIC_VARS:

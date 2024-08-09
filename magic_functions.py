@@ -8,7 +8,7 @@ import binaryninja as bn
 import binaryninjaui as bnui
 
 from IPython.core.magic import Magics, magics_class, line_magic
-from .user_ns import BinjaMagicVarSnapshot
+from .user_ns import BinjaContextVarSnapshot
 from .utils import detect_python_path
 
 
@@ -24,7 +24,7 @@ class NavMagic(Magics):
 
     @property
     def _binja_ns(self):
-        return BinjaMagicVarSnapshot(bnui.UIContext.activeContext())
+        return BinjaContextVarSnapshot(bnui.UIContext.activeContext())
 
     @classmethod
     def _parse_int(cls, arg: str, min_val: Optional[int] = None, max_val: Optional[int] = None) -> int:
