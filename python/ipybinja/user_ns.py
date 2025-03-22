@@ -84,13 +84,29 @@ class BinjaContextVarSnapshot:
         self.current_symbols = bv.get_symbols(address, 1) if bv and address is not None else []
         self.current_symbol = bv.get_symbol_at(address) if bv and address is not None else None
         self.current_data_var = bv.get_data_var_at(address) if bv and address is not None else None
-        self.current_hlil = func.hlil if func else None
-        self.current_mlil = func.mlil if func else None
-        self.current_llil = func.llil if func else None
+        self.current_hlil = self._read_il(func, 'HLIL')
+        self.current_mlil = self._read_il(func, 'MLIL')
+        self.current_llil = self._read_il(func, 'LLIL')
         self.current_raw_offset = bv.get_data_offset_for_address(address) if bv and address is not None else 0
         self.current_selection = view_frame.getSelectionOffsets() if view_frame else None
         self.current_basic_block = func.get_basic_block_at(address) if func and address is not None else None
         self.current_thread = threading.current_thread()
+    
+    def _read_il(self, fn: bn.Function | None, variant: str):
+        if fn is None:
+            return None
+        try:
+            match variant:
+                case 'LLIL':
+                    return fn.llil
+                case 'MLIL':
+                    return fn.mlil
+                case 'HLIL':
+                    return fn.hlil
+                case _:
+                    raise Exception('todo')
+        except bn.ILException:
+            return None
 
     @classmethod
     def _get_il_function(cls, function: Optional[bn.Function], view_location: Optional[bnui.ViewLocation]) \
