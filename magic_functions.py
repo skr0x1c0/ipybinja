@@ -8,8 +8,9 @@ import binaryninja as bn
 import binaryninjaui as bnui
 
 from IPython.core.magic import Magics, magics_class, line_magic
-from .user_ns import BinjaMagicVarSnapshot
+from .user_ns import _BinjaMagicVariablesProvider
 from .utils import detect_python_path
+from .notebook import NotebookManager
 
 
 class _NavMagicError(Exception):
@@ -24,7 +25,7 @@ class NavMagic(Magics):
 
     @property
     def _binja_ns(self):
-        return BinjaMagicVarSnapshot(bnui.UIContext.activeContext())
+        return _BinjaMagicVariablesProvider(bnui.UIContext.activeContext())
 
     @classmethod
     def _parse_int(cls, arg: str, min_val: Optional[int] = None, max_val: Optional[int] = None) -> int:
@@ -110,7 +111,7 @@ class NavMagic(Magics):
 
 @magics_class
 class PackagingMagics(Magics):
-    
+
     @line_magic
     def pip(self, line):
         python = detect_python_path()
@@ -118,7 +119,7 @@ class PackagingMagics(Magics):
             print(f'Error: failed to detect path to python binary. '
                   f'Configure python.binaryOverride setting in Binary Ninja to fix this problem')
             return
-        
+
         if sys.platform == "win32":
             python = '"' + python + '"'
         else:
@@ -127,3 +128,26 @@ class PackagingMagics(Magics):
         self.shell.system(" ".join([python, "-m", "pip", line]))
 
         print("Note: you may need to restart the kernel to use updated packages.")
+
+
+@magics_class
+class NotebookMagic(Magics):
+
+    def __init__(self, shell=None, connection_file=None, **kwargs):
+        super().__init__(shell=shell, **kwargs)
+        self._manager = NotebookManager(connection_file)
+
+    @line_magic
+    def open_notebook(self, line):
+        """Launch (or reuse) a Jupyter Notebook connected to this Binary Ninja
+        IPython kernel and open it in the default browser.
+        """
+        try:
+            return self._manager.open_notebook(line)
+        except Exception as e:
+            logging.error(f'open_notebook failed: {e}')
+
+    @line_magic
+    def notebook_log(self, line):
+        """Print stdout from the Jupyter Notebook started by %open_notebook."""
+        self._manager.notebook_log(line)
