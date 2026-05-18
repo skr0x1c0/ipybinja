@@ -3,6 +3,7 @@
 # Launch a Jupyter Notebook from Binary Ninja and connect it to the embedded
 # IPython kernel via a per-PID proxy kernelspec. Based on ipyida's notebook.py.
 
+import atexit
 import json
 import logging
 import os
@@ -19,7 +20,7 @@ import binaryninja as bn
 import binaryninjaui as bnui
 import nbformat
 from jupyter_client import find_connection_file
-from jupyter_core.paths import jupyter_data_dir
+from jupyter_core.paths import jupyter_data_dir, jupyter_runtime_dir
 
 from .install import binja_pythonpath_env, binja_site_packages_dir, pip_install_packages
 from .user_ns import _BinjaMagicVariablesProvider
@@ -216,6 +217,7 @@ class NotebookManager(object):
         self.nb_pipe_thread = None
         self.nb_pipe_buffer = []
         self.nb_pipe_lock = threading.Lock()
+        self._atexit_registered = False
 
     @staticmethod
     def ensure_kernel_proxy_installed():
@@ -266,6 +268,47 @@ class NotebookManager(object):
             if psutil.pid_exists(pid):
                 continue
             shutil.rmtree(os.path.join(kernels_dir, name), ignore_errors=True)
+
+    @staticmethod
+    def _cleanup_stale_jpserver_files():
+        """Remove jpserver-<pid>.json runtime files whose owning process is
+        dead. Binary Ninja crashing (or the job-object SIGKILL'ing the
+        notebook subprocess on host exit) leaves these behind, and
+        ``jupyter notebook list`` then keeps reporting dead servers
+        forever. The pid is in the filename, so check it with psutil.
+        """
+        try:
+            import psutil
+        except ImportError:
+            return
+        runtime_dir = jupyter_runtime_dir()
+        if not os.path.isdir(runtime_dir):
+            return
+        prefix = "jpserver-"
+        suffix = ".json"
+        for name in os.listdir(runtime_dir):
+            if not (name.startswith(prefix) and name.endswith(suffix)):
+                continue
+            try:
+                pid = int(name[len(prefix):-len(suffix)])
+            except ValueError:
+                continue
+            if psutil.pid_exists(pid):
+                continue
+            try:
+                os.remove(os.path.join(runtime_dir, name))
+            except OSError:
+                pass
+
+    @staticmethod
+    def _remove_jpserver_file(pid):
+        if not pid:
+            return
+        path = os.path.join(jupyter_runtime_dir(), "jpserver-%d.json" % pid)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
 
     def ensure_kernelspec_installed(self):
         """Install (or refresh) this Binary Ninja instance's proxy kernelspec.
@@ -430,6 +473,8 @@ class NotebookManager(object):
                not self.ensure_kernelspec_installed():
                 raise Exception("Could not find or install all requirements")
 
+        self._cleanup_stale_jpserver_files()
+
         ipynb_path = self._resolve_notebook_location(args.get("filename"))
         anchor_dir = os.path.dirname(ipynb_path)
 
@@ -456,6 +501,7 @@ class NotebookManager(object):
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True,
             )
+            self._ensure_atexit_registered()
             # Drain stdout immediately. Otherwise the OS pipe buffer (~4KB
             # on Windows) can fill during the startup-polling window and
             # block the server's own logger -- which then never finishes
@@ -560,8 +606,29 @@ class NotebookManager(object):
             return False
         return True
 
+    def _ensure_atexit_registered(self):
+        # Binary Ninja's normal Quit path goes through Python shutdown, so
+        # atexit handlers fire while our nb_proc is still alive -- we get
+        # one shot at /api/shutdown which lets the server delete its own
+        # jpserver-<pid>.json. Without this the job-object KILL_ON_JOB_CLOSE
+        # SIGKILLs the notebook subprocess and the runtime file leaks,
+        # leaving a dead entry in `jupyter notebook list` indefinitely.
+        # (Hard binja crash still leaks, but _cleanup_stale_jpserver_files
+        # sweeps those on the next %open_notebook.)
+        if self._atexit_registered:
+            return
+        atexit.register(self._atexit_shutdown)
+        self._atexit_registered = True
+
+    def _atexit_shutdown(self):
+        try:
+            self.shutdown()
+        except Exception:
+            pass
+
     def shutdown(self):
         if self.nb_proc:
+            nb_pid = self.nb_proc.pid
             graceful = False
             try:
                 graceful = self._shutdown_server_via_api(timeout=3)
@@ -577,6 +644,8 @@ class NotebookManager(object):
                     self.nb_proc.terminate()
                 except Exception:
                     pass
+                # Server didn't get a chance to delete its own runtime file.
+                self._remove_jpserver_file(nb_pid)
         if self.nb_pipe_thread:
             self.nb_pipe_thread.join(timeout=2)
         spec_dir = os.path.join(

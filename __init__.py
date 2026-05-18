@@ -204,6 +204,16 @@ try:
             app.shell.register_magics(NotebookMagic(
                 shell=app.shell, connection_file=app.abs_connection_file
             ))
+            # JupyterLab / Notebook 7 frontends open a `jupyter.widget.control`
+            # comm at session start to discover existing widgets. That target
+            # is normally registered by ipywidgets; without it ipykernel logs
+            # "No such comm target registered: jupyter.widget.control" plus a
+            # follow-up "No such comm: <uuid>" for the frontend's first
+            # comm_msg. We register a no-op handler so the comm opens
+            # silently and the follow-up msg is dropped without warning.
+            app.kernel.comm_manager.register_target(
+                'jupyter.widget.control', lambda comm, msg: None,
+            )
             app.kernel.start()
             sys.excepthook = BinjaExceptionHookRouter(app.shell.excepthook)
             return app
